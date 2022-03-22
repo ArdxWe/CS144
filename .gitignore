@@ -1,2 +1,9 @@
 /build
 /.ccls-cache
+
+# CLion
+cmake-build-debug
+.idea
+
+# vscode
+.vscode
