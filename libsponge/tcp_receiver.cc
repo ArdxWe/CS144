@@ -68,12 +68,9 @@ optional<WrappingInt32> TCPReceiver::ackno() const {
         case State::listen:
             return {};
         case State::syn_recv:
-            return wrap(start + 1, _isn);
+            return wrap(start + 1, _isn);  // SYN
         case State::fin_recv:
-            if (_reassembler.unassembled_bytes() != 0) {
-                return wrap(start + 1, _isn);
-            }
-            return wrap(start + 2, _isn);
+            return wrap(start + 2, _isn);  // SYN + FIN
         case State::error:
             return {};
     }
