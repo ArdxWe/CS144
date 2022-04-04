@@ -8,6 +8,8 @@
 
 #include <functional>
 #include <queue>
+#include <unordered_map>
+#include <utility>
 
 //! \brief The "sender" part of a TCP implementation.
 
@@ -31,6 +33,33 @@ class TCPSender {
 
     //! the (absolute) sequence number for the next byte to be sent
     uint64_t _next_seqno{0};
+
+    enum class State {
+        closed,
+        syn_sent,
+        syn_acked,
+        fin_sent,
+        fin_acked,
+    };
+
+    State _state = State::closed;
+
+    size_t _window_size = 1;
+
+    WrappingInt32 _ackno{0};
+
+    WrappingInt32 _send_seq{0};
+
+    std::unordered_map<uint32_t, std::pair<size_t, TCPSegment>> _map{};
+
+    bool _timer_started = false;
+    unsigned int _passed_time = 0;
+
+    unsigned int _now_retransmission_timeout = 0;
+
+    unsigned int _retransmission_counts = 0;
+
+    std::uint64_t _flight_size = 0;
 
   public:
     //! Initialize a TCPSender
