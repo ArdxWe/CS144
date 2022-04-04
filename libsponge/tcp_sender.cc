@@ -88,6 +88,7 @@ void TCPSender::fill_window() {
                     _next_seqno++;
                     _window_size--;
                     _send_seq = wrap(1, _send_seq);
+                    cout << "send seq fuck bttt " << _send_seq.raw_value() << endl;
                     _flight_size++;
                     _segments_out.push(segment);
                     _map[segment.header().seqno.raw_value()] = pair{1, segment};
@@ -102,6 +103,7 @@ void TCPSender::fill_window() {
             if (!read_stream.empty()) {
                 TCPSegment segment;
                 segment.header().seqno = _send_seq;
+                cout << "send seq fuck " << _send_seq.raw_value() << endl;
                 _flight_size += read_stream.size();
                 _next_seqno += read_stream.size();
 
@@ -114,6 +116,7 @@ void TCPSender::fill_window() {
                 cout << "now window size " << _window_size << endl;
 
                 _send_seq = wrap(segment.header().fin ? read_stream.size() + 1 : read_stream.size(), _send_seq);
+                cout << "send seq " << _send_seq.raw_value() << endl;
                 string copy = read_stream;
                 segment.payload() = Buffer(std::move(read_stream));
                 _segments_out.push(segment);
@@ -137,6 +140,7 @@ void TCPSender::fill_window() {
 //! \param ackno The remote receiver's ackno (acknowledgment number)
 //! \param window_size The remote receiver's advertised window size
 void TCPSender::ack_received(const WrappingInt32 ackno, const uint16_t window_size) {
+    cout << "ack " << ackno.raw_value() << endl;
     if (unwrap(ackno, _ackno, 0) > 0x80000000) {
         return;
     }
@@ -147,7 +151,10 @@ void TCPSender::ack_received(const WrappingInt32 ackno, const uint16_t window_si
             break;
         }
     }
-    if (!valid) return;
+    if (!valid) {
+        cout << "invalid" << endl;
+        return;
+    }
     cout << "valid" << endl;
 
     size_t has_send_no_ack = unwrap(_send_seq, _ackno, 0);
@@ -208,6 +215,8 @@ void TCPSender::tick(const size_t ms_since_last_tick) {
 
         cout << "fuck " << _ackno.raw_value() << endl;
         _segments_out.push(_map[_ackno.raw_value()].second);
+        cout << "re size: " << _map[_ackno.raw_value()].second.payload().size() << endl;
+        _send_seq = wrap(_map[_ackno.raw_value()].first, _ackno);
         if (_window_size != 0 || _last_zero_win_size == false) {
             cout << "asd" << endl;
             _retransmission_counts++;
