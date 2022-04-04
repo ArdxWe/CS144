@@ -61,6 +61,10 @@ class TCPSender {
 
     std::uint64_t _flight_size = 0;
 
+    std::unordered_map<uint32_t, uint16_t> _ack_win{};
+
+    bool _last_zero_win_size = false;
+
   public:
     //! Initialize a TCPSender
     TCPSender(const size_t capacity = TCPConfig::DEFAULT_CAPACITY,

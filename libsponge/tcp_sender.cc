@@ -38,7 +38,7 @@ uint64_t TCPSender::bytes_in_flight() const {
             return _flight_size;
         }
         default: {
-            return 1;
+            return _flight_size;
         }
     }
 }
@@ -77,9 +77,28 @@ void TCPSender::fill_window() {
             assert((next_seqno_absolute() > bytes_in_flight() && (!_stream.eof())) ||
                    (_stream.eof() && next_seqno_absolute() < _stream.bytes_written() + 2));
 
-            size_t size = std::min(TCPConfig::MAX_PAYLOAD_SIZE, _window_size);
+                if (_stream.eof()) {
+                    if (_window_size == 0) {
+                        return;
+                    }
+                    cout << "fuck\n";
+                    TCPSegment segment;
+                    segment.header().fin = true;
+                    segment.header().seqno = _send_seq;
+                    _next_seqno++;
+                    _window_size--;
+                    _send_seq = wrap(1, _send_seq);
+                    _flight_size++;
+                    _segments_out.push(segment);
+                    _map[segment.header().seqno.raw_value()] = pair{1, segment};
+                    _state = State::fin_sent;
+                    return;
+                }
+                while(true){
+                    size_t size = std::min(TCPConfig::MAX_PAYLOAD_SIZE, _window_size);
             string read_stream = _stream.read(size);
-            cout << "size " << size << endl;
+            cout << "size " << read_stream.size() << endl;
+            cout << "read " << read_stream << endl;
             if (!read_stream.empty()) {
                 TCPSegment segment;
                 segment.header().seqno = _send_seq;
@@ -87,14 +106,27 @@ void TCPSender::fill_window() {
                 _next_seqno += read_stream.size();
 
                 _window_size -= read_stream.size();
+                if (_stream.eof() && _window_size > 0) {
+                    segment.header().fin = true;
+                    _window_size--;
+                    _next_seqno++;
+                }
+                cout << "now window size " << _window_size << endl;
 
-                _send_seq = wrap(read_stream.size(), _send_seq);
+                _send_seq = wrap(segment.header().fin ? read_stream.size() + 1 : read_stream.size(), _send_seq);
                 string copy = read_stream;
                 segment.payload() = Buffer(std::move(read_stream));
                 _segments_out.push(segment);
-                _map[segment.header().seqno.raw_value()] = pair{copy.size(), segment};
-                cout << "flight: " << _flight_size << endl;
+                _map[segment.header().seqno.raw_value()] = pair{segment.header().fin ? copy.size() + 1 : copy.size(), segment};
+                cout << "now flight: " << _flight_size << endl;
+            } else {
+                break;
             }
+                }
+        }
+        case State::fin_sent: {
+            assert(_stream.eof() && next_seqno_absolute() == _stream.bytes_written() + 2 && bytes_in_flight() > 0);
+            break;
         }
 
         default:
@@ -105,6 +137,34 @@ void TCPSender::fill_window() {
 //! \param ackno The remote receiver's ackno (acknowledgment number)
 //! \param window_size The remote receiver's advertised window size
 void TCPSender::ack_received(const WrappingInt32 ackno, const uint16_t window_size) {
+    if (unwrap(ackno, _ackno, 0) > 0x80000000) {
+        return;
+    }
+        bool valid = false;
+    for (const auto& item : _map) {
+        if (item.first + item.second.first == ackno.raw_value()) {
+            valid = true;
+            break;
+        }
+    }
+    if (!valid) return;
+    cout << "valid" << endl;
+
+    size_t has_send_no_ack = unwrap(_send_seq, _ackno, 0);
+    if (_ack_win.find(ackno.raw_value()) != _ack_win.end()) {
+        _window_size = window_size - has_send_no_ack;
+    } else {
+        _ack_win[ackno.raw_value()] = window_size;
+        _window_size = window_size;
+        if (window_size == 0) {
+            _window_size = 1;
+        }
+         _passed_time = 0;
+    }
+    if(window_size == 0) _last_zero_win_size = true;
+    else {
+        _last_zero_win_size = false;
+    }
     cout << "ackno: " << ackno.raw_value() << endl;
     cout << "window size " << window_size << endl;
     cout << "distance " << unwrap(ackno, _ackno, _next_seqno) << endl;
@@ -112,7 +172,6 @@ void TCPSender::ack_received(const WrappingInt32 ackno, const uint16_t window_si
 
     cout << "flight: " << _flight_size << endl;
     _ackno = ackno;
-    _window_size = window_size;
 
     _now_retransmission_timeout = _initial_retransmission_timeout;
 
@@ -147,8 +206,10 @@ void TCPSender::tick(const size_t ms_since_last_tick) {
         assert(_map.find(_ackno.raw_value()) != _map.end());
         cout << "bitch" << endl;
 
+        cout << "fuck " << _ackno.raw_value() << endl;
         _segments_out.push(_map[_ackno.raw_value()].second);
-        if (_window_size != 0) {
+        if (_window_size != 0 || _last_zero_win_size == false) {
+            cout << "asd" << endl;
             _retransmission_counts++;
             _now_retransmission_timeout *= 2;
         }
